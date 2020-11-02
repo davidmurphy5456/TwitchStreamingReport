@@ -1,0 +1,72 @@
+
+clear
+
+//creating additional binary variables from original dataset
+
+gen good_game = 0
+gen large_playerbase = 0
+gen ratingstotal = 0
+gen positive_ratings_ratio = 0
+summarize ratingstotal, detail
+replace positive_ratings_ratio = (positive_ratings/(positive_ratings + negative_ratings))
+replace ratingstotal = positive_ratings + negative_ratings
+replace large_playerbase= 1 if ratingstotal >= 2695
+replace good_game = 1 if pos_rating_rate >= .9
+gen popular_positive_games = 0
+replace popular_positive_games = 1 if good_game == 1 & large_playerbase == 1
+gen popular_mostlypositive_games = 0
+replace popular_mostlypositive_games = 1 if positive_ratings_ratio >= .7 & positive_ratings_ratio <= .89 & large_playerbase == 1
+gen popular_neutral_games = 0
+replace popular_neutral_games = 1 if positive_ratings_ratio >= .45 & positive_ratings_ratio <= .69 & large_playerbase == 1
+gen popular_negative_games = 0
+replace popular_negative_games = 1 if positive_ratings_ratio <= .44 & large_playerbase == 1
+
+
+
+//with new dataset, run 2sls regressions, compare results and produce relevant metrics 
+
+//new variables
+gen fps_moba = 0
+replace fps_moba = 1 if fps==1 | moba ==1
+
+//regression 1 - final
+ivregress 2sls ratingstotal (peakviewers=charity_stream) price sequel totalviewers fps_moba if tournament == 0
+estat firststage
+outreg2 using capstone_preliminary_results.doc, replace stats(coef se tstat)
+
+// regression 1 - 2 stage
+regress peakviewers charity_stream price sequel totalviewers fps_moba if tournament == 0
+predict peak_hat
+regress ratingstotal peak_hat price sequel totalviewers fps_moba if tournament == 0
+drop peak_hat
+
+// regression 2 - final
+ivregress 2sls ratingstotal (peakviewers=charity_stream) price sequel totalviewers if tournament == 0
+estat firststage
+outreg2 using capstone_preliminary_results.doc, replace stats(coef se tstat)
+
+// regression 2 - 2 stage
+regress peakviewers charity_stream price sequel totalviewers if tournament == 0
+predict peak_hat
+regress ratingstotal peak_hat price sequel totalviewers if tournament == 0
+drop peak_hat
+
+// graphs
+histogram peakviewers if tournament == 0 & charity_stream == 0, fraction
+histogram peakviewers if tournament == 0 & charity_stream == 1, fraction
+twoway scatter ratingstotal peakviewers if peakviewers <= 200000 & ratingstotal <= 200000
+twoway scatter ratingstotal peakviewers if peakviewers <= 70000 & ratingstotal <= 70000
+
+
+//tables
+summarize peakviewers ratingstotal price totalviewers sequel if charity_stream ==1 & tournament ==0
+summarize peakviewers ratingstotal price totalviewers sequel if charity_stream ==0 & tournament == 0
+
+correl peakviewers ratingstotal charity_stream if tournament == 0
+regress charity_stream ratingstotal peakviewers
+outreg2 using correlation_stats.doc, replace stats(corr)
+
+
+bysort charity_stream: outreg2 if tournament == 0 using capstone_summarystats.doc, replace sum(log) keep(peakviewers ratingstotal price sequel totalviewers positive_ratings_ratio fps_moba) eqkeep(N mean)
+
+bysort tournament: outreg2 using capstone_summarystats2.doc, replace sum(log) keep(peakviewers ratingstotal price sequel totalviewers positive_ratings_ratio fps_moba) eqkeep(N mean)
